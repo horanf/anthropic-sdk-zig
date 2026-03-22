@@ -137,12 +137,18 @@ fn freeLastMessage(allocator: std.mem.Allocator, messages: *std.ArrayList(anthro
     if (message.content) |content| {
         allocator.free(content);
     }
+    if (message.raw_content_json) |raw_content_json| {
+        allocator.free(raw_content_json);
+    }
 }
 
 fn deinitHistory(allocator: std.mem.Allocator, messages: *std.ArrayList(anthropic.MessageParam)) void {
     for (messages.items) |message| {
         if (message.content) |content| {
             allocator.free(content);
+        }
+        if (message.raw_content_json) |raw_content_json| {
+            allocator.free(raw_content_json);
         }
     }
     messages.deinit(allocator);

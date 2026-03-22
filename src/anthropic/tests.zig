@@ -325,7 +325,7 @@ test "messages.stream sends stream=true and yields Claude SSE events" {
     try std.testing.expectEqualStrings("Hello!", text_buffer.items);
 }
 
-test "messages.create supports bash tool definitions and parses tool_use content blocks" {
+test "messages.create supports standard tools and parses tool_use content blocks" {
     var server = try TestServer.init(.tool_use_success);
     defer server.deinit();
     try server.start();
@@ -339,11 +339,24 @@ test "messages.create supports bash tool definitions and parses tool_use content
     });
     defer client.deinit();
 
+    var parsed_properties = try std.json.parseFromSlice(std.json.Value, std.testing.allocator,
+        \\{"command":{"type":"string"}}
+    , .{});
+    defer parsed_properties.deinit();
+
     var result = try client.createMessage(.{
         .model = "claude-sonnet-test",
         .max_tokens = 128,
         .tools = &.{
-            .{},
+            .{
+                .name = "bash",
+                .description = "Run a shell command.",
+                .input_schema = .{
+                    .type = "object",
+                    .properties = parsed_properties.value,
+                    .required = &.{"command"},
+                },
+            },
         },
         .tool_choice = .{
             .tool = .{
@@ -368,8 +381,16 @@ test "messages.create supports bash tool definitions and parses tool_use content
     const request_object = parsed_request.value.object;
     const tools = request_object.get("tools").?.array;
     try std.testing.expectEqual(@as(usize, 1), tools.items.len);
-    try std.testing.expectEqualStrings("bash_20250124", tools.items[0].object.get("type").?.string);
     try std.testing.expectEqualStrings("bash", tools.items[0].object.get("name").?.string);
+    try std.testing.expectEqualStrings("Run a shell command.", tools.items[0].object.get("description").?.string);
+
+    const input_schema = tools.items[0].object.get("input_schema").?.object;
+    try std.testing.expectEqualStrings("object", input_schema.get("type").?.string);
+    try std.testing.expectEqualStrings(
+        "string",
+        input_schema.get("properties").?.object.get("command").?.object.get("type").?.string,
+    );
+    try std.testing.expectEqualStrings("command", input_schema.get("required").?.array.items[0].string);
 
     const tool_choice = request_object.get("tool_choice").?.object;
     try std.testing.expectEqualStrings("tool", tool_choice.get("type").?.string);
@@ -391,6 +412,107 @@ test "messages.create supports bash tool definitions and parses tool_use content
         },
         .api_error => return error.TestExpectedSuccessResponse,
     }
+}
+
+test "messages.create serializes tool_use content blocks with raw JSON input" {
+    var server = try TestServer.init(.success);
+    defer server.deinit();
+    try server.start();
+
+    const base_url = try server.url(std.testing.allocator);
+    defer std.testing.allocator.free(base_url);
+
+    var client = try Client.init(std.testing.allocator, .{
+        .api_key = "test-api-key",
+        .base_url = base_url,
+    });
+    defer client.deinit();
+
+    var result = try client.createMessage(.{
+        .model = "claude-sonnet-test",
+        .max_tokens = 128,
+        .messages = &.{
+            .{
+                .role = .assistant,
+                .content_blocks = &.{
+                    .{
+                        .tool_use = .{
+                            .id = "toolu_bash_123",
+                            .name = "bash",
+                            .input = "{\"command\":\"pwd\"}",
+                        },
+                    },
+                },
+            },
+        },
+    });
+    defer result.deinit();
+
+    try server.join();
+
+    var parsed_request = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, server.received_body.?, .{});
+    defer parsed_request.deinit();
+
+    const messages = parsed_request.value.object.get("messages").?.array;
+    const assistant_blocks = messages.items[0].object.get("content").?.array;
+    try std.testing.expectEqualStrings("tool_use", assistant_blocks.items[0].object.get("type").?.string);
+    try std.testing.expectEqualStrings("toolu_bash_123", assistant_blocks.items[0].object.get("id").?.string);
+    try std.testing.expectEqualStrings("bash", assistant_blocks.items[0].object.get("name").?.string);
+    try std.testing.expectEqualStrings(
+        "pwd",
+        assistant_blocks.items[0].object.get("input").?.object.get("command").?.string,
+    );
+}
+
+test "messages.create serializes raw_content_json without escaping" {
+    var server = try TestServer.init(.success);
+    defer server.deinit();
+    try server.start();
+
+    const base_url = try server.url(std.testing.allocator);
+    defer std.testing.allocator.free(base_url);
+
+    var client = try Client.init(std.testing.allocator, .{
+        .api_key = "test-api-key",
+        .base_url = base_url,
+    });
+    defer client.deinit();
+
+    var result = try client.createMessage(.{
+        .model = "claude-sonnet-test",
+        .max_tokens = 128,
+        .messages = &.{
+            .{
+                .role = .assistant,
+                .raw_content_json = "[{\"type\":\"tool_use\",\"id\":\"toolu_raw_123\",\"name\":\"bash\",\"input\":{\"command\":\"pwd\"}}]",
+            },
+            .{
+                .role = .user,
+                .raw_content_json = "[{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_raw_123\",\"content\":\"/tmp\\n\"}]",
+            },
+        },
+    });
+    defer result.deinit();
+
+    try server.join();
+
+    var parsed_request = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, server.received_body.?, .{});
+    defer parsed_request.deinit();
+
+    const messages = parsed_request.value.object.get("messages").?.array;
+
+    const assistant_blocks = messages.items[0].object.get("content").?.array;
+    try std.testing.expectEqualStrings("tool_use", assistant_blocks.items[0].object.get("type").?.string);
+    try std.testing.expectEqualStrings("toolu_raw_123", assistant_blocks.items[0].object.get("id").?.string);
+    try std.testing.expectEqualStrings(
+        "pwd",
+        assistant_blocks.items[0].object.get("input").?.object.get("command").?.string,
+    );
+
+    const user_blocks = messages.items[1].object.get("content").?.array;
+    try std.testing.expectEqualStrings("tool_result", user_blocks.items[0].object.get("type").?.string);
+    try std.testing.expectEqualStrings("toolu_raw_123", user_blocks.items[0].object.get("tool_use_id").?.string);
+    try std.testing.expectEqualStrings("/tmp\n", user_blocks.items[0].object.get("content").?.string);
 }
 
 test "messages.create serializes tool_result blocks for bash tool loops" {

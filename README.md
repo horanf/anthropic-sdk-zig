@@ -7,7 +7,7 @@ This project follows the basic usage shape of `anthropic-sdk-python`, but only i
 - synchronous client
 - `POST /v1/messages`
 - basic SSE streaming support for `POST /v1/messages`
-- basic tool use support focused on the Anthropic bash tool
+- basic tool use support
 - API key auth
 - basic request/response structs
 - parsed API error response
@@ -33,7 +33,8 @@ Main entry points:
 - `MessageResponse.text(allocator)`
 - `MessageStream.nextEvent()`
 - `ServerSentEvent.json(T, allocator)`
-- `BashToolDefinition`
+- `Tool`
+- `ToolUseBlockParam`
 - `ToolResultBlockParam`
 
 Default behavior:
@@ -177,23 +178,38 @@ The demo:
 
 ## Tool Use
 
-This SDK now supports the minimum pieces needed for a bash tool loop:
+This SDK now supports the minimum pieces needed for a tool loop:
 
-- declare the Anthropic bash tool in `tools`
+- declare standard tools in `tools`
 - optionally force tool choice with `tool_choice`
 - parse `tool_use` content blocks from Claude responses
 - send `tool_result` blocks back in the next `user` message
 
-It does not execute bash commands for you. The SDK stays at the protocol layer.
+It does not execute tools for you. The SDK stays at the protocol layer.
 
-### Requesting bash tool use
+### Requesting tool use
 
 ```zig
+var parsed_schema = try std.json.parseFromSlice(
+    std.json.Value,
+    allocator,
+    \\{"command":{"type":"string"}}
+, .{});
+defer parsed_schema.deinit();
+
 var result = try client.messages().create(.{
     .model = "claude-sonnet-4-5",
     .max_tokens = 256,
     .tools = &.{
-        .{},
+        .{
+            .name = "bash",
+            .description = "Run a shell command.",
+            .input_schema = .{
+                .type = "object",
+                .properties = parsed_schema.value,
+                .required = &.{"command"},
+            },
+        },
     },
     .tool_choice = .{
         .tool = .{
@@ -232,7 +248,7 @@ switch (result) {
 }
 ```
 
-### Sending a bash tool result back
+### Sending tool results and assistant tool_use history back
 
 After you run the command in your own code, continue the conversation by sending a `tool_result` block first, then optional text:
 
@@ -263,6 +279,15 @@ _ = try client.messages().create(.{
 });
 ```
 
+If you already have pre-serialized Claude content arrays, use `MessageParam.raw_content_json` to embed them without escaping:
+
+```zig
+.{
+    .role = .assistant,
+    .raw_content_json = "[{\"type\":\"tool_use\",\"id\":\"toolu_123\",\"name\":\"bash\",\"input\":{\"command\":\"pwd\"}}]",
+}
+```
+
 ## Request shape
 
 Currently supported request fields:
@@ -270,7 +295,7 @@ Currently supported request fields:
 - `model`
 - `max_tokens`
 - `messages`
-- `tools` for Anthropic bash tool definitions
+- `tools` for standard Anthropic tool definitions
 - `tool_choice`
 - `system`
 - `temperature`
@@ -283,7 +308,10 @@ Currently supported request fields:
 If you need content blocks in input messages, use `messages[*].content_blocks`. The current implementation supports:
 
 - `text`
+- `tool_use`
 - `tool_result`
+
+If you already have a serialized Claude content array, use `messages[*].raw_content_json` instead.
 
 For streaming requests, `stream: true` is added by `messages.stream()` and `streamMessage()`.
 

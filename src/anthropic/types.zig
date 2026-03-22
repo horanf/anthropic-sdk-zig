@@ -27,9 +27,16 @@ pub const ToolResultBlockParam = struct {
     is_error: ?bool = null,
 };
 
+pub const ToolUseBlockParam = struct {
+    id: []const u8,
+    name: []const u8,
+    input: []const u8,
+};
+
 pub const InputContentBlock = union(enum) {
     text: TextInputBlock,
     tool_result: ToolResultBlockParam,
+    tool_use: ToolUseBlockParam,
 
     pub fn jsonStringify(self: InputContentBlock, jw: anytype) !void {
         switch (self) {
@@ -55,6 +62,18 @@ pub const InputContentBlock = union(enum) {
                 }
                 try jw.endObject();
             },
+            .tool_use => |block| {
+                try jw.beginObject();
+                try jw.objectField("type");
+                try jw.write("tool_use");
+                try jw.objectField("id");
+                try jw.write(block.id);
+                try jw.objectField("name");
+                try jw.write(block.name);
+                try jw.objectField("input");
+                try writeRawJson(jw, block.input);
+                try jw.endObject();
+            },
         }
     }
 };
@@ -63,17 +82,60 @@ pub const MessageParam = struct {
     role: Role,
     content: ?[]const u8 = null,
     content_blocks: ?[]const InputContentBlock = null,
+    raw_content_json: ?[]const u8 = null,
 
     pub fn jsonStringify(self: MessageParam, jw: anytype) !void {
         try jw.beginObject();
         try jw.objectField("role");
         try jw.write(self.role);
         try jw.objectField("content");
-        if (self.content_blocks) |content_blocks| {
+        if (self.raw_content_json) |raw_content_json| {
+            try writeRawJson(jw, raw_content_json);
+        } else if (self.content_blocks) |content_blocks| {
             try jw.write(content_blocks);
         } else {
             try jw.write(self.content orelse "");
         }
+        try jw.endObject();
+    }
+};
+
+pub const ToolInputSchema = struct {
+    type: []const u8,
+    properties: ?std.json.Value = null,
+    required: ?[]const []const u8 = null,
+
+    pub fn jsonStringify(self: ToolInputSchema, jw: anytype) !void {
+        try jw.beginObject();
+        try jw.objectField("type");
+        try jw.write(self.type);
+        if (self.properties) |properties| {
+            try jw.objectField("properties");
+            try jw.write(properties);
+        }
+        if (self.required) |required| {
+            try jw.objectField("required");
+            try jw.write(required);
+        }
+        try jw.endObject();
+    }
+};
+
+pub const Tool = struct {
+    name: []const u8,
+    description: ?[]const u8 = null,
+    input_schema: ToolInputSchema,
+
+    pub fn jsonStringify(self: Tool, jw: anytype) !void {
+        try jw.beginObject();
+        try jw.objectField("name");
+        try jw.write(self.name);
+        if (self.description) |description| {
+            try jw.objectField("description");
+            try jw.write(description);
+        }
+        try jw.objectField("input_schema");
+        try jw.write(self.input_schema);
         try jw.endObject();
     }
 };
@@ -140,7 +202,7 @@ pub const CreateMessageRequest = struct {
     model: []const u8,
     max_tokens: usize,
     messages: []const MessageParam,
-    tools: ?[]const BashToolDefinition = null,
+    tools: ?[]const Tool = null,
     tool_choice: ?ToolChoice = null,
     system: ?[]const u8 = null,
     temperature: ?f64 = null,
@@ -308,3 +370,9 @@ pub const StreamMessageDeltaEvent = struct {
 pub const StreamMessageStopEvent = struct {
     type: []const u8,
 };
+
+fn writeRawJson(jw: anytype, raw: []const u8) !void {
+    try jw.beginWriteRaw();
+    try jw.writer.writeAll(raw);
+    jw.endWriteRaw();
+}
