@@ -89,6 +89,18 @@ pub fn build(b: *std.Build) void {
     // by passing `--prefix` or `-p`.
     b.installArtifact(exe);
 
+    const kimi_stream_chat = b.addExecutable(.{
+        .name = "kimi_stream_chat",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/kimi_stream_chat.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "anthropic_sdk_zig", .module = mod },
+            },
+        }),
+    });
+
     // This creates a top level step. Top level steps have a name and can be
     // invoked by name when running `zig build` (e.g. `zig build run`).
     // This will evaluate the `run` step rather than the default step.
@@ -113,6 +125,13 @@ pub fn build(b: *std.Build) void {
     // command itself, like this: `zig build run -- arg1 arg2 etc`
     if (b.args) |args| {
         run_cmd.addArgs(args);
+    }
+
+    const kimi_stream_chat_step = b.step("kimi-stream-chat", "Run the Kimi streaming chat demo");
+    const kimi_stream_chat_cmd = b.addRunArtifact(kimi_stream_chat);
+    kimi_stream_chat_step.dependOn(&kimi_stream_chat_cmd.step);
+    if (b.args) |args| {
+        kimi_stream_chat_cmd.addArgs(args);
     }
 
     // Creates an executable that will run `test` blocks from the provided module.

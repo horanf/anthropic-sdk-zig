@@ -43,7 +43,8 @@ pub fn copyHeader(
     var iterator = head.iterateHeaders();
     while (iterator.next()) |header| {
         if (std.ascii.eqlIgnoreCase(header.name, name)) {
-            return allocator.dupe(u8, header.value);
+            const value = try allocator.dupe(u8, header.value);
+            return value;
         }
     }
     return null;

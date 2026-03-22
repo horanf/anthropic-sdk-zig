@@ -26,13 +26,15 @@ pub const ServerSentEvent = struct {
         }
 
         const text = parsed.value.delta.text orelse return null;
-        return allocator.dupe(u8, text);
+        const copied = try allocator.dupe(u8, text);
+        return copied;
     }
 };
 
 pub const MessageStream = struct {
     allocator: std.mem.Allocator,
     request: std.http.Client.Request,
+    response: std.http.Client.Response,
     reader: *std.Io.Reader,
     request_id: ?[]u8,
     transfer_buffer: [1024]u8,
@@ -45,12 +47,13 @@ pub const MessageStream = struct {
     pub fn init(
         allocator: std.mem.Allocator,
         request: std.http.Client.Request,
-        response: *std.http.Client.Response,
+        response: std.http.Client.Response,
         request_id: ?[]u8,
     ) !MessageStream {
         var stream = MessageStream{
             .allocator = allocator,
             .request = request,
+            .response = response,
             .reader = undefined,
             .request_id = request_id,
             .transfer_buffer = undefined,
@@ -62,8 +65,9 @@ pub const MessageStream = struct {
         };
         errdefer stream.deinit();
 
-        stream.decompress_buffer = try util.allocDecompressBuffer(allocator, response.head.content_encoding);
-        stream.reader = response.readerDecompressing(
+        stream.response.request = &stream.request;
+        stream.decompress_buffer = try util.allocDecompressBuffer(allocator, stream.response.head.content_encoding);
+        stream.reader = stream.response.readerDecompressing(
             &stream.transfer_buffer,
             &stream.decompress,
             stream.decompress_buffer,

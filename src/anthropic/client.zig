@@ -191,7 +191,7 @@ pub const Messages = struct {
             .stream = try stream_mod.MessageStream.init(
                 self.client.allocator,
                 started.request,
-                &started.response,
+                started.response,
                 request_id,
             ),
         };
@@ -200,7 +200,24 @@ pub const Messages = struct {
     fn beginRequest(self: Messages, request: types.CreateMessageRequest, should_stream: bool) !StartedRequest {
         var payload_writer: std.Io.Writer.Allocating = .init(self.client.allocator);
         defer payload_writer.deinit();
-        try request.writeJson(&payload_writer.writer, should_stream);
+
+        const RequestPayload = struct {
+            request: types.CreateMessageRequest,
+            stream: bool,
+
+            pub fn jsonStringify(self_: @This(), jw: anytype) !void {
+                try self_.request.writeJson(jw, self_.stream);
+            }
+        };
+
+        try std.json.Stringify.value(
+            RequestPayload{
+                .request = request,
+                .stream = should_stream,
+            },
+            .{},
+            &payload_writer.writer,
+        );
         const payload = try payload_writer.toOwnedSlice();
         defer self.client.allocator.free(payload);
 

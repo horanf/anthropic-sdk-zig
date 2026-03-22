@@ -146,6 +146,35 @@ const parsed = try event.json(anthropic.StreamContentBlockDeltaEvent, allocator)
 defer parsed.deinit();
 ```
 
+## Kimi Stream Chat Demo
+
+Kimi Code currently documents Anthropic-compatible access with:
+
+- `ANTHROPIC_BASE_URL=https://api.kimi.com/coding/`
+- `ANTHROPIC_API_KEY=<your Kimi Code key>`
+- model `kimi-for-coding`
+
+This repo includes a minimal multi-turn streaming demo at `examples/kimi_stream_chat.zig`.
+
+Run it with:
+
+```sh
+cp .env-example .env
+# then edit .env and fill your key
+set -a
+. ./.env
+set +a
+zig build kimi-stream-chat
+```
+
+The demo:
+
+- targets `https://api.kimi.com/coding`
+- uses `KIMI_MODEL` when set, otherwise defaults to `kimi-for-coding`
+- keeps text-only conversation history in memory
+- streams `text_delta` chunks to the terminal as they arrive
+- supports `/clear` and `/exit`
+
 ## Tool Use
 
 This SDK now supports the minimum pieces needed for a bash tool loop:
