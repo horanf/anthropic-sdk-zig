@@ -145,6 +145,7 @@ pub const Messages = struct {
 
     pub fn create(self: Messages, request: types.CreateMessageRequest) !CreateMessageResult {
         var started = try self.beginRequest(request, false);
+        started.response.request = &started.request;
         defer started.request.deinit();
         errdefer if (started.request_id) |value| self.client.allocator.free(value);
 
@@ -170,6 +171,7 @@ pub const Messages = struct {
         errdefer if (started.request_id) |value| self.client.allocator.free(value);
 
         if (!util.isSuccessStatus(started.response.head.status)) {
+            started.response.request = &started.request;
             defer started.request.deinit();
 
             const response_body = try util.readResponseBody(self.client.allocator, &started.response);
